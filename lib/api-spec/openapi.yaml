@@ -1,0 +1,130 @@
+openapi: 3.1.0
+info:
+  # Do not change the title, if the title changes, the import paths will be broken
+  title: Api
+  version: 0.1.0
+  description: FareIndex airfare inflation tracking API
+servers:
+  - url: /api
+    description: Base API path
+tags:
+  - name: health
+    description: Health operations
+  - name: fareindex
+    description: Airfare inflation tracking operations
+paths:
+  /healthz:
+    get:
+      operationId: healthCheck
+      tags: [health]
+      summary: Health check
+      description: Returns server health status
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+  /index:
+    get:
+      operationId: getIndex
+      tags: [fareindex]
+      summary: Get daily Laspeyres index history
+      description: Returns the weighted airfare inflation index for each observed day.
+      responses:
+        "200":
+          description: Daily index observations
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/IndexPoint"
+  /raw-data:
+    get:
+      operationId: getRawData
+      tags: [fareindex]
+      summary: Get fare observations
+      description: Returns all route-level fare observations used by the index.
+      responses:
+        "200":
+          description: Fare observations
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/FareObservation"
+  /trigger-scrape:
+    post:
+      operationId: triggerScrape
+      tags: [fareindex]
+      summary: Generate the next daily fare observation
+      description: Adds a realistic next-day observation and calculates its Laspeyres index.
+      responses:
+        "200":
+          description: New scrape result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScrapeResult"
+components:
+  schemas:
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+      required:
+        - status
+    IndexPoint:
+      type: object
+      properties:
+        date:
+          type: string
+          format: date
+        indexValue:
+          type: number
+        changePercent:
+          type: number
+        isLatest:
+          type: boolean
+      required: [date, indexValue, changePercent, isLatest]
+    FareObservation:
+      type: object
+      properties:
+        id:
+          type: number
+        route:
+          type: string
+        origin:
+          type: string
+        destination:
+          type: string
+        fare:
+          type: number
+        date:
+          type: string
+          format: date
+        bookingWindow:
+          type: string
+        isBase:
+          type: boolean
+      required: [id, route, origin, destination, fare, date, bookingWindow, isBase]
+    ScrapeResult:
+      type: object
+      properties:
+        date:
+          type: string
+          format: date
+        indexValue:
+          type: number
+        message:
+          type: string
+        observations:
+          type: array
+          items:
+            $ref: "#/components/schemas/FareObservation"
+      required: [date, indexValue, message, observations]
+
