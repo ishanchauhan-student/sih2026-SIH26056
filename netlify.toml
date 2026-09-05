@@ -1,0 +1,17 @@
+[build]
+  command = "PORT=4173 BASE_PATH=/ NODE_ENV=production pnpm --filter @workspace/fareindex run build"
+  publish = "artifacts/fareindex/dist/public"
+  functions = "netlify/functions"
+
+[build.environment]
+  NODE_VERSION = "22"
+
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/fareindex"
+  status = 200
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
