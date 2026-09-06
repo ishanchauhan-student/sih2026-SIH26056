@@ -37,7 +37,14 @@ const factors = [
   [1.096, 1.089, 1.13],
 ];
 
-const store = getStore(STORE_NAME);
+let store = null;
+let volatileState = null;
+
+try {
+  store = getStore(STORE_NAME);
+} catch {
+  // Keep the function available when this Netlify site has no Blobs context.
+}
 
 function dateOnly(date) {
   return date.toISOString().slice(0, 10);
@@ -118,15 +125,20 @@ function normalizeState(value) {
 }
 
 export async function loadState() {
-  const stored = await store.get(STATE_KEY, { type: "json" });
-  if (stored) return normalizeState(stored);
+  if (store) {
+    const stored = await store.get(STATE_KEY, { type: "json" });
+    if (stored) return normalizeState(stored);
+  }
+  if (volatileState) return normalizeState(volatileState);
   const seeded = createSeedState();
-  await store.setJSON(STATE_KEY, seeded);
+  if (store) await store.setJSON(STATE_KEY, seeded);
+  else volatileState = seeded;
   return seeded;
 }
 
 async function saveState(state) {
-  await store.setJSON(STATE_KEY, state);
+  if (store) await store.setJSON(STATE_KEY, state);
+  else volatileState = state;
 }
 
 function parseRecords(payload) {
@@ -367,6 +379,7 @@ export async function getHealth() {
         ? "ok"
         : "degraded",
     sourceConfigured,
+    persistence: store ? "netlify-blobs" : "memory",
     lastUpdatedAt: state.lastUpdatedAt,
     lastSource: state.lastSource,
     lastError: state.lastError,
