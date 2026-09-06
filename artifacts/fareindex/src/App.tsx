@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query';
+import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Activity,
   ArrowDownRight,
@@ -47,6 +47,9 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import NotFound from '@/pages/not-found';
 import { Route, Switch, useLocation, Router as WouterRouter } from 'wouter';
 
+const flightGlobeVideo = `${import.meta.env.BASE_URL}flight-globe.mp4`;
+const flightGlobePoster = `${import.meta.env.BASE_URL}flight-globe-poster.jpg`;
+
 const queryClient = new QueryClient();
 
 const formatINR = (value: number) =>
@@ -65,6 +68,22 @@ const formatDate = (value?: string, options?: Intl.DateTimeFormatOptions) => {
 
 const compactDate = (value: string) =>
   formatDate(value, { day: '2-digit', month: 'short' }).replace(' ', ' ');
+
+type FareIndexHealth = {
+  status: 'ok' | 'degraded';
+  sourceConfigured: boolean;
+  lastUpdatedAt: string | null;
+  lastSource: string;
+  lastError: string | null;
+  lastDataDate: string | null;
+  scheduledRefresh: string;
+};
+
+async function fetchFareIndexHealth(): Promise<FareIndexHealth> {
+  const response = await fetch('/api/healthz');
+  if (!response.ok) throw new Error('Health check failed');
+  return response.json() as Promise<FareIndexHealth>;
+}
 
 function LoadingPanel({ className = '' }: { className?: string }) {
   return <div className={`skeleton rounded-xl ${className}`} aria-label="Loading data" />;
@@ -153,26 +172,23 @@ function IndiaFlight() {
   return (
     <div className="relative min-h-[245px] overflow-hidden rounded-2xl border border-primary/10 bg-[#e9efe8]">
       <div className="absolute inset-0 opacity-55" style={{ backgroundImage: 'linear-gradient(hsl(203 54% 31% / .08) 1px, transparent 1px), linear-gradient(90deg, hsl(203 54% 31% / .08) 1px, transparent 1px)', backgroundSize: '34px 34px' }} />
+      <video
+        className="absolute inset-0 h-full w-full object-contain mix-blend-multiply"
+        src={flightGlobeVideo}
+        poster={flightGlobePoster}
+        autoPlay
+        loop
+        muted
+        playsInline
+        preload="auto"
+        aria-hidden="true"
+      />
+      <div className="absolute inset-0 bg-gradient-to-b from-[#e9efe8]/75 via-transparent to-[#e9efe8]/85" />
       <div className="absolute left-5 top-5 z-10">
         <span className="font-mono text-[9px] uppercase tracking-[0.18em] text-primary/55">Live route context</span>
         <p className="mt-1 text-sm font-bold tracking-tight text-primary">India domestic network</p>
       </div>
-      <svg viewBox="0 0 360 245" className="absolute inset-0 h-full w-full" aria-label="Animated flight path across India" role="img">
-        <path d="M206 33 C238 43, 261 60, 272 78 C282 95, 275 112, 290 125 C305 138, 304 151, 287 164 C271 176, 273 196, 253 205 C238 212, 229 198, 218 186 C208 175, 188 173, 180 155 C171 138, 151 129, 144 112 C137 95, 150 84, 160 70 C171 55, 183 42, 206 33Z" fill="hsl(203 54% 31% / .11)" stroke="hsl(203 54% 31% / .27)" strokeWidth="1.2" />
-        <path d="M159 102 C177 94, 195 80, 221 79 C245 78, 259 94, 276 113" fill="none" stroke="hsl(35 86% 60% / .95)" strokeWidth="2" className="flight-track" />
-        <path d="M153 145 C180 128, 213 119, 258 148" fill="none" stroke="hsl(168 48% 38% / .85)" strokeWidth="1.5" strokeDasharray="3 7" />
-        <g className="flight-plane" transform="translate(217 78)">
-          <circle r="12" fill="hsl(35 86% 60% / .14)" className="india-pulse" />
-          <path d="M-9 2 L7 -5 L3 1 L8 5 L6 7 L0 3 L-5 7 L-7 6 L-3 1Z" fill="hsl(203 54% 31%)" />
-        </g>
-        <circle cx="158" cy="102" r="4" fill="hsl(35 86% 60%)" stroke="hsl(42 40% 99%)" strokeWidth="2" />
-        <circle cx="276" cy="113" r="4" fill="hsl(168 48% 38%)" stroke="hsl(42 40% 99%)" strokeWidth="2" />
-        <circle cx="205" cy="151" r="3.5" fill="hsl(203 54% 31%)" stroke="hsl(42 40% 99%)" strokeWidth="2" />
-        <text x="146" y="94" fill="hsl(203 54% 31%)" fontSize="8" fontFamily="Space Mono">DEL</text>
-        <text x="280" y="111" fill="hsl(203 54% 31%)" fontSize="8" fontFamily="Space Mono">KOL</text>
-        <text x="208" y="166" fill="hsl(203 54% 31%)" fontSize="8" fontFamily="Space Mono">BOM</text>
-      </svg>
-      <div className="absolute bottom-4 left-5 flex items-center gap-2 text-[10px] text-primary/60">
+      <div className="absolute bottom-4 left-5 z-10 flex items-center gap-2 text-[10px] text-primary/60">
         <span className="size-1.5 rounded-full bg-accent" />
         <span>Sampled routes: DEL · BOM · BLR · HYD · MAA · CCU</span>
       </div>
@@ -185,6 +201,11 @@ function Dashboard() {
   const indexQuery = useGetIndex();
   const rawQuery = useGetRawData();
   const scrapeMutation = useTriggerScrape();
+  const healthQuery = useQuery({
+    queryKey: ['fareindex-health'],
+    queryFn: fetchFareIndexHealth,
+    refetchInterval: 60_000,
+  });
   const [routeFilter, setRouteFilter] = useState('all');
   const [search, setSearch] = useState('');
   const [methodologyOpen, setMethodologyOpen] = useState(false);
@@ -219,6 +240,17 @@ function Dashboard() {
   }, [rawData]);
 
   const chartData = useMemo(() => [...indexData].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()), [indexData]);
+  const sourceHealthy = healthQuery.data?.status === 'ok' && healthQuery.data.sourceConfigured && !healthQuery.data.lastError;
+  const sourceLabel = healthQuery.isLoading
+    ? 'Checking source…'
+    : sourceHealthy
+      ? 'Live source healthy'
+      : 'Live source needs setup';
+  const lastRefreshLabel = healthQuery.data?.lastUpdatedAt
+    ? `Live refresh · ${formatDate(healthQuery.data.lastUpdatedAt, { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' })} IST`
+    : sourceHealthy
+      ? 'Waiting for first live refresh'
+      : 'Live source is not configured';
 
   const refresh = () => {
     void queryClient.invalidateQueries({ queryKey: getGetIndexQueryKey() });
@@ -272,7 +304,7 @@ function Dashboard() {
             <span>Analyst cockpit</span>
           </div>
           <div className="ml-auto flex items-center gap-2">
-            <span className="hidden items-center gap-1.5 rounded-full bg-secondary px-3 py-1.5 text-[10px] font-semibold text-secondary-foreground sm:flex"><Wifi size={12} /> Source healthy</span>
+            <span className={`hidden items-center gap-1.5 rounded-full px-3 py-1.5 text-[10px] font-semibold sm:flex ${sourceHealthy ? 'bg-secondary text-secondary-foreground' : 'bg-accent/15 text-accent-foreground'}`}><Wifi size={12} /> {sourceLabel}</span>
             <button type="button" onClick={refresh} disabled={indexQuery.isFetching || rawQuery.isFetching} data-testid="button-refresh-header" aria-label="Refresh source data" className="flex size-9 items-center justify-center rounded-lg border border-border bg-card text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-50">
               <RefreshCw size={15} className={indexQuery.isFetching || rawQuery.isFetching ? 'animate-spin' : ''} />
             </button>
@@ -333,7 +365,7 @@ function Dashboard() {
                 <div className="cockpit-card rounded-xl p-5" data-testid="metric-freshness">
                   <div className="flex items-center justify-between"><span className="text-xs font-semibold text-muted-foreground">Source freshness</span><Clock3 size={16} className="text-primary/65" /></div>
                   <div className="mt-3 text-lg font-extrabold tracking-tight text-primary">{latestDate ? formatDate(latestDate) : 'Waiting'}</div>
-                  <p className="mt-2 flex items-center gap-1.5 text-[11px] text-muted-foreground"><span className="size-1.5 rounded-full bg-accent" /> Reconciled daily at 06:00 IST</p>
+                  <p className="mt-2 flex items-center gap-1.5 text-[11px] text-muted-foreground"><span className={`size-1.5 rounded-full ${sourceHealthy ? 'bg-accent' : 'bg-muted-foreground'}`} /> {lastRefreshLabel}</p>
                 </div>
               </>
             )}

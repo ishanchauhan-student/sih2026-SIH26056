@@ -432,20 +432,6 @@
   animation: shimmer 1.5s infinite;
 }
 
-.flight-track {
-  stroke-dasharray: 7 9;
-  animation: dash 7s linear infinite;
-}
-
-.flight-plane {
-  transform-origin: center;
-  animation: fly 5.5s ease-in-out infinite;
-}
-
-.india-pulse {
-  animation: pulse-dot 2.2s ease-in-out infinite;
-}
-
 .table-row {
   transition: background-color 180ms ease, transform 180ms ease;
 }
@@ -466,20 +452,6 @@
 
 @keyframes shimmer {
   to { transform: translateX(100%); }
-}
-
-@keyframes dash {
-  to { stroke-dashoffset: -128; }
-}
-
-@keyframes fly {
-  0%, 100% { transform: translate(0, 0) rotate(-8deg); }
-  50% { transform: translate(8px, -4px) rotate(-4deg); }
-}
-
-@keyframes pulse-dot {
-  0%, 100% { opacity: 0.45; transform: scale(0.92); }
-  50% { opacity: 1; transform: scale(1); }
 }
 
 @media (prefers-reduced-motion: reduce) {
