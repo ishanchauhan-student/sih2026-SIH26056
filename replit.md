@@ -13,6 +13,7 @@ FareIndex tracks airfare inflation across a fixed basket of Indian domestic rout
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
 - `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
 - Required API env: `DATABASE_URL` — Postgres connection string
+- Required live fare secret: `JINKO_API_KEY` — server-side Jinko API key; the daily refresh makes three searches per day
 - Netlify: `netlify.toml` builds `artifacts/fareindex` and routes `/api/*` to `netlify/functions/fareindex.mjs`
 
 ## Stack
@@ -57,7 +58,9 @@ FareIndex tracks airfare inflation across a fixed basket of Indian domestic rout
 - Vite's build config requires `PORT` and `BASE_PATH`; Netlify supplies them in `netlify.toml`.
 - The app contract lives in `lib/api-spec/openapi.yaml`; regenerate hooks after changing it.
 - The Netlify function is intentionally stateless across cold starts; durable production history needs a hosted data store or live fare provider.
-- To connect an actual fare supplier without changing the UI, set `FAREINDEX_LIVE_API_URL` to a JSON endpoint returning `{ "DEL-BOM": 5200, "BLR-DEL": 4100, "BOM-GOI": 3300 }` or an array of `{ route, fare }` records. Failed/partial feeds safely fall back to the simulator.
+- The live provider uses Jinko's `POST /v1/flight_search` endpoint for each tracked route, requests INR one-way economy fares 30 days out, and stores the lowest returned fare. Three daily searches remain well inside Jinko's free quota.
+- Netlify production must also have `JINKO_API_KEY` added in the site's environment variables; Replit Secrets are not automatically copied to Netlify. The scheduled function refreshes daily at 00:30 UTC.
+- A custom JSON provider can still be used by setting `FAREINDEX_LIVE_API_URL` to an endpoint returning `{ "DEL-BOM": 5200, "BLR-DEL": 4100, "BOM-GOI": 3300 }` or an array of `{ route, fare }` records. Failed/partial feeds are reported as degraded rather than silently presented as live data.
 
 ## Pointers
 

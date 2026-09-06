@@ -60,10 +60,88 @@ const calculateIndex = (
   fares: Array<{ weight: number; fare: number; baseFare: number }>,
 ) =>
   fares.reduce(
-    (total, item) =>
-      total + item.weight * (item.fare / item.baseFare),
+    (total, item) => total + item.weight * (item.fare / item.baseFare),
     0,
   ) * 100;
+
+const dateOnlyFromNow = (days: number) => {
+  const date = new Date();
+  date.setUTCDate(date.getUTCDate() + days);
+  return asIsoDate(date);
+};
+
+const readMoney = (money: unknown) => {
+  if (!money || typeof money !== "object") return null;
+  const value = money as Record<string, unknown>;
+  const amount = Number(value.value ?? value.amount);
+  if (!Number.isFinite(amount) || amount <= 0) return null;
+  const decimalPlaces = Number(value.decimal_places);
+  return Number.isFinite(decimalPlaces) ? amount / 10 ** decimalPlaces : amount;
+};
+
+const readJinkoFare = (offer: unknown) => {
+  if (!offer || typeof offer !== "object") return null;
+  const fares = (offer as Record<string, unknown>).fares;
+  if (!Array.isArray(fares)) return null;
+  return (
+    fares
+      .map((fare) => {
+        if (!fare || typeof fare !== "object") return null;
+        const item = fare as Record<string, unknown>;
+        return readMoney(item.total_price ?? item.price_per_person);
+      })
+      .filter((fare): fare is number => fare !== null)
+      .sort((a, b) => a - b)[0] ?? null
+  );
+};
+
+const fetchJinkoFares = async () => {
+  const apiKey = process.env.JINKO_API_KEY;
+  if (!apiKey) return new Map<string, number>();
+
+  const fares = await Promise.all(
+    ROUTES.map(async (route) => {
+      const response = await fetch("https://api.gojinko.com/v1/flight_search", {
+        method: "POST",
+        signal: AbortSignal.timeout(12000),
+        headers: {
+          accept: "application/json",
+          "content-type": "application/json",
+          "x-api-key": apiKey,
+        },
+        body: JSON.stringify({
+          origin: route.code.slice(0, 3),
+          destination: route.code.slice(4, 7),
+          departure_date: dateOnlyFromNow(30),
+          trip_type: "oneway",
+          cabin_class: "economy",
+          adults: 1,
+          currency: "INR",
+          limit: 10,
+        }),
+      });
+      if (!response.ok)
+        throw new Error(`Jinko returned HTTP ${response.status}.`);
+
+      const payload: unknown = await response.json();
+      const offers =
+        payload && typeof payload === "object"
+          ? (payload as Record<string, unknown>).offers
+          : [];
+      const fare = Array.isArray(offers)
+        ? offers
+            .map(readJinkoFare)
+            .filter((value): value is number => value !== null)
+            .sort((a, b) => a - b)[0]
+        : null;
+      if (fare === null || fare === undefined) {
+        throw new Error(`Jinko returned no INR fares for ${route.code}.`);
+      }
+      return [route.code, fare] as const;
+    }),
+  );
+  return new Map(fares);
+};
 
 let seedPromise: Promise<void> | undefined;
 
@@ -113,13 +191,18 @@ const fetchLiveFares = async () => {
   if (!sourceUrl) return new Map<string, number>();
 
   try {
-    const response = await fetch(sourceUrl, { signal: AbortSignal.timeout(4000) });
+    const response = await fetch(sourceUrl, {
+      signal: AbortSignal.timeout(4000),
+    });
     if (!response.ok) return new Map<string, number>();
     const payload: unknown = await response.json();
     const records = Array.isArray(payload)
       ? payload
       : payload && typeof payload === "object"
-        ? Object.entries(payload).map(([route, value]) => ({ route, fare: value }))
+        ? Object.entries(payload).map(([route, value]) => ({
+            route,
+            fare: value,
+          }))
         : [];
     return new Map(
       records.flatMap((record) => {
@@ -152,7 +235,10 @@ const getRawData = async () => {
       fareindexRoutesTable,
       eq(fareindexObservationsTable.routeId, fareindexRoutesTable.id),
     )
-    .orderBy(desc(fareindexObservationsTable.observedDate), asc(fareindexObservationsTable.id));
+    .orderBy(
+      desc(fareindexObservationsTable.observedDate),
+      asc(fareindexObservationsTable.id),
+    );
 
   return rows.map((row) => ({
     id: row.id,
@@ -207,8 +293,13 @@ router.post("/trigger-scrape", async (req, res) => {
     .orderBy(desc(fareindexHistoryTable.observedDate))
     .limit(1);
   const nextDate = addDays(latest.observedDate, 1);
-  const routes = await db.select().from(fareindexRoutesTable).orderBy(asc(fareindexRoutesTable.id));
-  const liveFares = await fetchLiveFares();
+  const routes = await db
+    .select()
+    .from(fareindexRoutesTable)
+    .orderBy(asc(fareindexRoutesTable.id));
+  const liveFares = process.env.JINKO_API_KEY
+    ? await fetchJinkoFares()
+    : await fetchLiveFares();
 
   const observations = routes.map((route) => {
     const fluctuation = 1 + (Math.random() * 0.1 - 0.05);
@@ -216,7 +307,8 @@ router.post("/trigger-scrape", async (req, res) => {
     return {
       routeId: route.id,
       fare: Math.round(
-        liveFares.get(route.code) ?? route.baseFare * fluctuation * festivalSurge,
+        liveFares.get(route.code) ??
+          route.baseFare * fluctuation * festivalSurge,
       ),
       observedDate: nextDate,
       bookingWindow: "T-30",
